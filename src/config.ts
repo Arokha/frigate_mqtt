@@ -4,6 +4,8 @@ export const configSchema = z.object({
     "mqtt_url": z.string().default("mqtt://localhost"),
     "mqtt_port": z.number().default(1883),
     "mqtt_root": z.string().default("frigate"),
+    "mqtt_user": z.string().default(""),
+    "mqtt_pass": z.string().default(""),
     "cameras": z.array(z.object({
         "name": z.string(),
         "rehome_slew_time": z.number().default(0), // Because we rehome often, even when already home'd, we may want to avoid 'gaps' in coverage

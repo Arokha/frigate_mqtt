@@ -1,0 +1,10 @@
+services:
+  # frigate: ... # Bring your own Frigate
+  # mqtt_broker: ... # mosquitto-eclipse is a good choice
+  
+  frigate_mqtt:
+    build: .
+    container_name: frigate_mqtt
+    restart: unless-stopped
+    volumes:
+      - ./config:/app/config

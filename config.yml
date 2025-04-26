@@ -1,0 +1,22 @@
+mqtt_url: 'mqtt://192.168.1.13'
+mqtt_port: 1883
+mqtt_root: 'frigate'
+
+# Array of cameras
+cameras:
+  # Camera object
+  - name: coyotes
+
+    rehome: true
+    rehome_after: 240
+    rehome_preset: "1"
+    rehome_slew_time: 0
+
+    patrols: true
+    patrol_every: 3600
+    patrol_route: ["2","3","1"]
+    patrol_dwell: 60
+    patrol_slew_time: 12
+
+    want_motion: true
+    want_detect: true

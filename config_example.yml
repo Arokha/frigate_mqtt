@@ -1,6 +1,10 @@
-mqtt_url: 'mqtt://localhost' # We connect out to here. Should be 'mqtt://' protocol
-mqtt_port: 1883 # On this port
-mqtt_root: 'frigate' # We expect this root namespace in MQTT (configurable in Frigate's config)
+# Basically every config item is optional and has defaults set, but you do need at least one camera defined
+
+mqtt_url: 'mqtt://localhost'  # We connect out to here. Should be 'mqtt://' protocol
+mqtt_port: 1883               # On this port
+mqtt_root: 'frigate'          # We expect this root namespace in MQTT (configurable in Frigate's config)
+mqtt_user: ""                 # Empty string works if you have anonymous access enabled
+mqtt_pass: ""                 # Password for MQTT broker
 
 # Array of cameras. All parameters are optional, but if you don't provide ANY, then why are you here!
 cameras:

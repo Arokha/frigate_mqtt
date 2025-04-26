@@ -1,12 +1,12 @@
 import { connect, MqttClient } from "mqtt";
-import { FrigateCamera, CameraState } from "./camera.ts";
+import { FrigateCamera } from "./camera.ts";
 import { readFileSync } from "fs";
 import { parse as yamlParse } from "yaml";
 import { configSchema } from "./config.ts";
 import { frigateStateSchema, FrigateState } from "./frigate.ts";
 
 // Read config from config.yaml file
-const configFile = readFileSync("config.yml", "utf8");
+const configFile = readFileSync("config/config.yml", "utf8");
 const config = configSchema.parse(yamlParse(configFile));
 
 // Create an array of FrigateCamera instances based on the config
@@ -76,7 +76,11 @@ function connectToBroker(): void {
     }
     
     // Connect to the MQTT broker
-    broker = connect(config.mqtt_url, {port: config.mqtt_port});
+    broker = connect(config.mqtt_url, {
+        port: config.mqtt_port,
+        username: config.mqtt_user,
+        password: config.mqtt_pass
+    });
     
     // Set up event handlers
     broker.on("connect", handleConnect);
