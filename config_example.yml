@@ -1,0 +1,15 @@
+mqtt_url: 'mqtt://localhost'
+mqtt_port: 1883
+mqtt_root: 'frigate'
+
+# Array of cameras
+cameras:
+  # Camera object
+  - name: coyotes # Name of the camera
+    rehome: true # Whether to rehome after some time
+    rehome_after: 120 # Seconds
+    patrols: true # Whether to patrol some presets occasionally
+    patrol_every: 3600 # Seconds
+    patrol_route: ["2","3","1"] # Onvif preset names
+    want_motion: true # Whether we want motion-detection on
+    want_detect: true # Whether we want object-detection on (requires motion)
