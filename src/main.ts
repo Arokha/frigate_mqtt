@@ -14,6 +14,7 @@ const cameras = config.cameras.map((cameraConfig) => {
     const camera = new FrigateCamera(cameraConfig.name);
     return camera;
 });
+
 // Connect to the MQTT broker
 let connected_to_broker = false;
 const broker = connect(config.mqtt_url, {port: config.mqtt_port});
@@ -30,6 +31,7 @@ broker.on("close", () => {
     connected_to_broker = false;
 });
 
+// Wait for connection to be established
 while(!connected_to_broker) {
     // Wait for the connection to be established
     console.log("Waiting for connection to MQTT broker...");
@@ -47,14 +49,18 @@ broker.subscribe(`${config.mqtt_root}/camera_activity`, { qos: 1 }, (err) => {
     }
 });
 
-// Fetch the state of each camera and update the camera instances with their current states from Frigate
-// Frigate publishes a JSON object containing the state of every camera to the topic 'frigate/camera_activity'
-// We can trigger one of these publish events by sending any message to the topic 'frigate/onConnect'
-broker.publish(`${config.mqtt_root}/onConnect`, "poke", { qos: 1, retain: true }, (err) => {
+// Now the individual camera topics. subscribe() takes an array so we'll just listen to them all at once
+const cameraTopics = cameras.map((camera) => {
+    return [
+        camera.getDetectUpdateTopic(config.mqtt_root),
+        camera.getMotionUpdateTopic(config.mqtt_root),
+    ];
+}).flat();
+broker.subscribe(cameraTopics, { qos: 1 }, (err) => {
     if (err) {
-        console.error("Error publishing to frigate/onConnect:", err);
+        console.error(`Error subscribing to camera topics:`, err);
     } else {
-        console.log("Published to frigate/onConnect");
+        console.log(`Subscribed to camera topics`);
     }
 });
 
@@ -112,3 +118,48 @@ broker.on("message", (topic, message) => {
         }
     }
 });
+
+// If Frigate is running, it will publish to the frigate/camera_activity topic on receiving a message on frigate/onConnect
+function pokeBroker() {
+    // Frigate publishes a JSON object containing the state of every camera to the topic 'frigate/camera_activity'
+    // We can trigger one of these publish events by sending any message to the topic 'frigate/onConnect'
+    broker.publish(`${config.mqtt_root}/onConnect`, "poke", { qos: 1, retain: true }, (err) => {
+        if (err) {
+            console.error("Error publishing to frigate/onConnect:", err);
+        } else {
+            console.log("Published to frigate/onConnect");
+        }
+    });
+}
+
+function setCameraDetect(camera: FrigateCamera, state: boolean) {
+    // Set the camera's detect state
+    const topic = camera.getDetectSetTopic(config.mqtt_root);
+    const message = state ? "ON" : "OFF";
+    broker.publish(topic, message, { qos: 1 }, (err) => {
+        if (err) {
+            console.error(`Error publishing to ${topic}:`, err);
+        } else {
+            console.log(`Published to ${topic}: ${message}`);
+        }
+    });
+}
+
+function setCameraMotion(camera: FrigateCamera, state: boolean) {
+    // Set the camera's motion state
+    const topic = camera.getMotionSetTopic(config.mqtt_root);
+    const message = state ? "ON" : "OFF";
+    broker.publish(topic, message, { qos: 1 }, (err) => {
+        if (err) {
+            console.error(`Error publishing to ${topic}:`, err);
+        } else {
+            console.log(`Published to ${topic}: ${message}`);
+        }
+    });
+}
+
+// At this point all the listeners should be configured and we should be able to push a message to invoke output to frigate/camera_activity topic
+// We'll set up a loop to do this every 60 seconds
+setInterval(() => {
+    pokeBroker();
+}, 60000);
