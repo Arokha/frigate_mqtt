@@ -7,10 +7,13 @@
   "type": "module",
   "main": "main.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "esbuild src/main.ts --bundle --platform=node --target=node16 --outfile=main.js --format=esm --sourcemap",
+    "dev": "npm run build -- --watch"
   },
   "dependencies": {
     "@types/typescript": "^0.4.29",
+    "esbuild": "^0.25.3",
     "mqtt": "^5.11.1",
     "typescript": "^5.8.3",
     "yaml": "^2.7.1",

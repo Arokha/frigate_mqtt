@@ -2,6 +2,7 @@ export interface CameraState {
     motion_enabled?: boolean;
     detect_enabled?: boolean;
     task?: 'normal' | 'homing' | 'patrolling';
+    detected_objects?: string[]; // Add this field
 }
 
 export class FrigateCamera {
@@ -9,6 +10,7 @@ export class FrigateCamera {
     motion_enabled: boolean = false;
     detect_enabled: boolean = false;
     task: 'normal' | 'homing' | 'patrolling' = 'normal';
+    detected_objects: string[] = [];
 
     constructor(name: string, mqtt_url: string = 'localhost', mqtt_port: number = 1883) {
         this.name = name;
@@ -78,6 +80,13 @@ export class FrigateCamera {
         if (newstate.task !== undefined && newstate.task !== this.task) {
             this.task = newstate.task;
             updated = true;
+        }
+        if (newstate.detected_objects !== undefined) {
+            // Only update if the array content is different
+            if (JSON.stringify(this.detected_objects) !== JSON.stringify(newstate.detected_objects)) {
+                this.detected_objects = newstate.detected_objects;
+                updated = true;
+            }
         }
         return updated;
     }
