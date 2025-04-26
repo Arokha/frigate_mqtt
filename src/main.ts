@@ -277,12 +277,11 @@ async function pokeFrigate(): Promise<void> {
             "poke",
             5000
         );
-        console.log("[MAIN] Received regular update from Frigate");
+        console.log("[MAIN] Received camera status object from Frigate");
         frigate_available = true;
     } catch (error) {
         console.error("[MAIN] Error communicating with Frigate:", error);
         frigate_available = false;        
-        throw error; // Re-throw to allow caller to handle
     }
 }
 
@@ -746,15 +745,18 @@ let init_finished = false;
 while(should_run) {
     while(!connected_to_broker) {
         await connectToBroker();
+        console.log("[MAIN] Waiting for connection to broker...");
         await new Promise(resolve => setTimeout(resolve, 3000));
     }
 
     while(!frigate_available) {
         await connectToFrigate();
+        console.log("[MAIN] Waiting for Frigate to be available...");
         await new Promise(resolve => setTimeout(resolve, 3000));
     }
 
     if(!init_finished) {
+        console.log("[MAIN] Initializing system now that MQTT and Frigate are available...");
         // Initialize camera states based on configuration
         await initializeCameraStates();
 
