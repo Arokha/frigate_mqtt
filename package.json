@@ -8,7 +8,7 @@
   "main": "main.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "esbuild src/main.ts --bundle --platform=node --packages=external --outfile=main.js --format=esm --sourcemap",
+    "build": "tsc && esbuild src/main.ts --bundle --platform=node --packages=external --outfile=main.js --format=esm --sourcemap",
     "dev": "npm run build -- --watch",
     "start": "node main.js"
   },
