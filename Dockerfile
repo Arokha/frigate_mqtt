@@ -9,7 +9,7 @@ RUN npm ci
 # Copy source code
 COPY tsconfig.json ./
 COPY src/ ./src/
-COPY config_example.yml ./
+COPY config/config_example.yml ./
 
 # Build the application
 RUN npm run build
