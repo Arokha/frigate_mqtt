@@ -220,7 +220,7 @@ function handleMessage(topic: string, message: Buffer): void {
     // {"camera_name": {"motion": false, "objects": [], "config": {"detect": true, "snapshots": false, "record": true, "audio": false, "autotracking": false}}}
     // Note the "motion" and "objects" are what is CURRENTLY SENSED by the camera, not the config, unlike the "config" object
     if(trimmedTopic === "camera_activity") {
-        console.log("[MAIN] Received camera_activity message:", message.toString());
+        //console.log("[MAIN] Received camera_activity message:", message.toString());
         try {
             const rawStates = JSON.parse(message.toString());
             // If Frigate returns only a {} then it is not done coming up yet
@@ -239,7 +239,7 @@ function handleMessage(topic: string, message: Buffer): void {
                         detect_enabled: cameraState.config.detect,
                         sees_objects: Boolean(cameraState.objects.length)
                     });
-                    console.log(`[CAM:${cameraName}] Updated state, detected objects: ${cameraState.objects.length > 0 ? cameraState.objects.join(', ') : 'none'}`);
+                    //console.log(`[CAM:${cameraName}] Updated state, detected objects: ${cameraState.objects.length > 0 ? cameraState.objects.join(', ') : 'none'}`);
                 }
             }
         } catch (error) {
@@ -288,7 +288,7 @@ async function pokeFrigate(): Promise<void> {
             "poke",
             5000
         );
-        console.log("[MAIN] Successfully received response from Frigate");
+        console.log("[MAIN] Received regular update from Frigate");
     } catch (error) {
         console.error("[MAIN] Error communicating with Frigate:", error);
         
@@ -401,11 +401,10 @@ async function setCameraPtzPreset(camera: FrigateCamera, presetName: string): Pr
             });
         });
         
-        console.log(`[CAM:${camera.getName()}] Sent PTZ preset command: ${message}`);
-        camera.setCameraState({ task: 'homing' }); // Update the camera state
+        console.log(`[CAM:${camera.getName()}] Sent PTZ command: ${message}`);
         return true;
     } catch (error) {
-        console.error(`[CAM:${camera.getName()}] Error sending PTZ preset command:`, error);
+        console.error(`[CAM:${camera.getName()}] Error sending PTZ command:`, error);
         
         // Check if this is a connection issue
         if (!connected_to_broker) {
@@ -434,17 +433,17 @@ async function setCameraPtzPreset(camera: FrigateCamera, presetName: string): Pr
 async function safeMoveCameraToPreset(
     camera: FrigateCamera, 
     presetName: string,
-    slewTime: number = 0 // How long to disable motion/detection for
+    slewSeconds: number = 0 // How long to disable motion/detection for
 ): Promise<boolean> {
-    console.log(`[CAM:${camera.getName()}] Safely moving to preset ${presetName}...`);
+    console.log(`[CAM:${camera.getName()}] PTZ move wrapper for preset ${presetName}...`);
 
     // Store original detection states to restore later if needed
     const originalDetectState = camera.detect_enabled;
     const originalMotionState = camera.motion_enabled;
     
-    if(slewTime){
+    if(slewSeconds){
         // Step 1: Disable object detection
-        if (slewTime && originalDetectState) {
+        if (slewSeconds && originalDetectState) {
             console.log(`[CAM:${camera.getName()}] Disabling object detection...`);
             const detectResult = await setCameraDetect(camera, false);
             if (!detectResult) {
@@ -454,7 +453,7 @@ async function safeMoveCameraToPreset(
         }
         
         // Step 2: Disable motion detection
-        if (slewTime && originalMotionState) {
+        if (slewSeconds && originalMotionState) {
             console.log(`[CAM:${camera.getName()}] Disabling motion detection...`);
             const motionResult = await setCameraMotion(camera, false);
             if (!motionResult) {
@@ -469,7 +468,7 @@ async function safeMoveCameraToPreset(
     }
     
     // Step 3: Move to preset
-    console.log(`[CAM:${camera.getName()}] Moving to preset ${presetName}...`);
+    console.log(`[CAM:${camera.getName()}] Sending ONVIF PTZ preset '${presetName}'...`);
     const ptzResult = await setCameraPtzPreset(camera, presetName);
     if (!ptzResult) {
         console.error(`[CAM:${camera.getName()}] Failed to move to preset ${presetName}`);
@@ -484,9 +483,9 @@ async function safeMoveCameraToPreset(
     }
     
     // Wait for camera to finish moving before re-enabling detection
-    if(slewTime){
-        console.log(`[CAM:${camera.getName()}] Waiting ${slewTime}s for camera movement to complete...`);
-        await new Promise(resolve => setTimeout(resolve, slewTime*1000));
+    if(slewSeconds){
+        console.log(`[CAM:${camera.getName()}] Waiting ${slewSeconds}s for camera movement to complete...`);
+        await new Promise(resolve => setTimeout(resolve, slewSeconds*1000));
 
         // Step 4: Re-enable motion detection
         if (originalMotionState) {
@@ -511,15 +510,16 @@ async function safeMoveCameraToPreset(
  * Move a camera through a sequence of preset positions
  * @param camera The camera to move
  * @param presetNames Array of preset names to move through
- * @param dwellTime Milliseconds to wait at each position (default: 10000 - 10 seconds)
- * @param maxRetries Number of times to check for objects before moving on (default: 3)
+ * @param dwellSeconds Milliseconds to wait at each position (default: 30 seconds)
+ * @param slewSeconds How long to disable motion/detection for (default: 10 seconds)
+ * @param maxRetries Number of times to check for objects before moving on (default: 10)
  * @returns Promise that resolves when patrol is complete
  */
 async function patrolCameraPresets(
     camera: FrigateCamera,
     presetNames: string[],
-    dwellTime: number = 30 * 1000, // Time to wait at each preset
-    slewTime: number = 10 * 1000, // How long to disable motion/detection for
+    dwellSeconds: number = 30, // Time to wait at each preset
+    slewSeconds: number = 10, // How long to disable motion/detection for
     maxRetries: number = 10
 ): Promise<boolean> {
     console.log(`[CAM:${camera.getName()}] Starting patrol through ${presetNames.length} positions`);
@@ -542,7 +542,7 @@ async function patrolCameraPresets(
             // Continue anyway
         }
         
-        const result = await safeMoveCameraToPreset(camera, presetNames[0], slewTime);
+        const result = await safeMoveCameraToPreset(camera, presetNames[0], slewSeconds);
         if (!result) {
             console.error(`[CAM:${camera.getName()}] Failed to start patrol`);
             camera.setCameraState({ task: 'normal' });
@@ -550,7 +550,7 @@ async function patrolCameraPresets(
         }
         
         // Wait at first position
-        await new Promise(resolve => setTimeout(resolve, dwellTime));
+        await new Promise(resolve => setTimeout(resolve, dwellSeconds*1000));
     }
     
     // Remaining presets
@@ -571,7 +571,7 @@ async function patrolCameraPresets(
                     console.log(`[CAM:${camera.getName()}] Objects detected at position ${i}. Waiting...`);
                     
                     // Wait another dwell time and check again
-                    await new Promise(resolve => setTimeout(resolve, dwellTime));
+                    await new Promise(resolve => setTimeout(resolve, dwellSeconds*1000));
                     retryCount++;
                 }
             } catch (error) {
@@ -585,7 +585,7 @@ async function patrolCameraPresets(
             console.log(`[CAM:${camera.getName()}] Still detecting objects after ${maxRetries} retries, continuing patrol anyway`);
         }
         
-        const result = await safeMoveCameraToPreset(camera, presetNames[i], slewTime);
+        const result = await safeMoveCameraToPreset(camera, presetNames[i], slewSeconds);
         if (!result) {
             console.error(`[CAM:${camera.getName()}] Failed to continue patrol at position ${i+1}`);
             // Try to restore detection
@@ -603,7 +603,7 @@ async function patrolCameraPresets(
         
         // Only wait at intermediate positions
         if (i < presetNames.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, dwellTime));
+            await new Promise(resolve => setTimeout(resolve, dwellSeconds*1000));
         }
     }
     
@@ -630,26 +630,28 @@ function setupCameraSchedules(): void {
         if (cameraConfig.rehome && cameraConfig.rehome_after > 0) {
             console.log(`[MAIN] Setting up rehoming schedule for ${camera.getName()} every ${cameraConfig.rehome_after} seconds`);
             setInterval(async () => {
-                // Only rehome if the camera is idle
-                if (camera.task === 'normal') {
-                    try {
-                        // Get the latest camera state before deciding to rehome
-                        await refreshCameraState(camera);
-                        
-                        // Check if there are objects detected
-                        if (!camera.sees_objects) {
-                            console.log(`[CAM:${camera.getName()}] Rehoming to preset ${cameraConfig.rehome_preset}...`);
-                            await safeMoveCameraToPreset(camera, cameraConfig.rehome_preset, cameraConfig.rehome_slew_time).catch(err => {
-                                console.error(`[CAM:${camera.getName()}] Error rehoming:`, err);
-                            });
-                        } else {
-                            console.log(`[CAM:${camera.getName()}] Skipping rehome because objects are detected`);
-                        }
-                    } catch (err) {
-                        console.error(`[CAM:${camera.getName()}] Error checking state before rehoming:`, err);
-                    }
-                } else {
+                if(camera.task !== 'normal') {
                     console.log(`[CAM:${camera.getName()}] Skipping rehome because task is currently: ${camera.task}`);
+                    return;
+                }
+                // Only rehome if the camera is idle
+                try {
+                    // Get the latest camera state before deciding to rehome
+                    await refreshCameraState(camera);
+                    
+                    // Check if there are objects detected
+                    if (!camera.sees_objects) {
+                        camera.setCameraState({ task: 'homing' }); // Update the camera state
+                        console.log(`[CAM:${camera.getName()}] Rehoming to preset ${cameraConfig.rehome_preset}...`);
+                        await safeMoveCameraToPreset(camera, cameraConfig.rehome_preset, cameraConfig.rehome_slew_time).catch(err => {
+                            console.error(`[CAM:${camera.getName()}] Error rehoming:`, err);
+                        });
+                        camera.setCameraState({ task: 'normal' }); // Reset the camera state
+                    } else {
+                        console.log(`[CAM:${camera.getName()}] Skipping rehome because objects are detected`);
+                    }
+                } catch (err) {
+                    console.error(`[CAM:${camera.getName()}] Error checking state before rehoming:`, err);
                 }
             }, cameraConfig.rehome_after * 1000);
         }
@@ -658,6 +660,10 @@ function setupCameraSchedules(): void {
         if (cameraConfig.patrols && cameraConfig.patrol_every > 0 && cameraConfig.patrol_route.length > 0) {
             console.log(`[CAM:${camera.getName()}] Setting up patrol schedule: every ${cameraConfig.patrol_every} seconds with ${cameraConfig.patrol_dwell}s dwell time`);
             setInterval(async () => {
+                if(camera.task !== 'normal') {
+                    console.log(`[CAM:${camera.getName()}] Skipping patrol because task is currently: ${camera.task}`);
+                    return;
+                }
                 try {
                     // Get the latest camera state before deciding to patrol
                     await refreshCameraState(camera);
@@ -667,20 +673,15 @@ function setupCameraSchedules(): void {
                         console.log(`[CAM:${camera.getName()}] Skipping patrol because objects are detected`);
                         return;
                     }
-                    // Only patrol if the camera is idle
-                    if (camera.task === 'normal') {
-                        console.log(`[CAM:${camera.getName()}] Starting patrol...`);
-                        await patrolCameraPresets(
-                            camera, 
-                            cameraConfig.patrol_route,
-                            cameraConfig.patrol_dwell * 1000, // Convert seconds to milliseconds
-                            cameraConfig.patrol_slew_time * 1000 // Convert seconds to milliseconds
-                        ).catch(err => {
-                            console.error(`[CAM:${camera.getName()}] Error patrolling:`, err);
-                        });
-                    } else {
-                        console.log(`[CAM:${camera.getName()}] Won't start patrol because task is currently: ${camera.task}`);
-                    }
+                    console.log(`[CAM:${camera.getName()}] Starting patrol...`);
+                    await patrolCameraPresets(
+                        camera, 
+                        cameraConfig.patrol_route,
+                        cameraConfig.patrol_dwell,
+                        cameraConfig.patrol_slew_time
+                    ).catch(err => {
+                        console.error(`[CAM:${camera.getName()}] Error patrolling:`, err);
+                    });
                 } catch (err) {
                     console.error(`[CAM:${camera.getName()}] Error checking state before patrolling:`, err);
                 }
