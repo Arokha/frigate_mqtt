@@ -17,6 +17,7 @@ const cameras = config.cameras.map((cameraConfig) => {
 
 // Connect to the MQTT broker
 let connected_to_broker = false;
+let frigate_available = false;
 let broker: MqttClient;
 
 /**
@@ -97,12 +98,7 @@ function handleConnect(): void {
     connected_to_broker = true;
     
     // Subscribe to required topics
-    setupSubscriptions();
-    
-    // Initial poke to get camera states
-    pokeFrigate().catch(err => {
-        console.error("[MAIN] Error during initial poke:", err);
-    });
+    setupSubscriptions();    
 }
 
 /**
@@ -149,17 +145,6 @@ function setupSubscriptions(): void {
         }
     });
 }
-
-// Initialize the connection
-connectToBroker();
-
-// Wait for connection to be established
-(async function waitForConnection() {
-    while(!connected_to_broker) {
-        console.log("[MAIN] Waiting for connection to MQTT broker...");
-        await new Promise(resolve => setTimeout(resolve, 1000));
-    }
-})();
 
 // Global variables for the health check
 let healthCheckInterval: NodeJS.Timeout;
@@ -293,16 +278,10 @@ async function pokeFrigate(): Promise<void> {
             5000
         );
         console.log("[MAIN] Received regular update from Frigate");
+        frigate_available = true;
     } catch (error) {
         console.error("[MAIN] Error communicating with Frigate:", error);
-        
-        // If we've lost connection, try to reconnect
-        console.log("[MAIN] Connection appears to be dead. Attempting to reconnect...");
-        connected_to_broker = false;
-        broker.end(true);
-        
-        // Attempt to reconnect
-        connectToBroker();
+        frigate_available = false;        
         throw error; // Re-throw to allow caller to handle
     }
 }
@@ -634,6 +613,10 @@ function setupCameraSchedules(): void {
         if (cameraConfig.rehome && cameraConfig.rehome_after > 0) {
             console.log(`[MAIN] Setting up rehoming schedule for ${camera.getName()} every ${cameraConfig.rehome_after} seconds`);
             setInterval(async () => {
+                if(!getSystemReady()) {
+                    console.log(`[CAM:${camera.getName()}] Skipping rehome because broker is not connected or Frigate is not available`);
+                    return;
+                }
                 if(camera.task !== 'normal') {
                     console.log(`[CAM:${camera.getName()}] Skipping rehome because task is currently: ${camera.task}`);
                     return;
@@ -664,6 +647,10 @@ function setupCameraSchedules(): void {
         if (cameraConfig.patrols && cameraConfig.patrol_every > 0 && cameraConfig.patrol_route.length > 0) {
             console.log(`[CAM:${camera.getName()}] Setting up patrol schedule: every ${cameraConfig.patrol_every} seconds with ${cameraConfig.patrol_dwell}s dwell time`);
             setInterval(async () => {
+                if(!getSystemReady()) {
+                    console.log(`[CAM:${camera.getName()}] Skipping patrol because broker is not connected or Frigate is not available`);
+                    return;
+                }
                 if(camera.task !== 'normal') {
                     console.log(`[CAM:${camera.getName()}] Skipping patrol because task is currently: ${camera.task}`);
                     return;
@@ -742,19 +729,44 @@ async function initializeCameraStates(): Promise<void> {
     console.log("[MAIN] Camera state initialization complete");
 }
 
-// Initialize camera schedules and health check after connection is established
-(async function initialize() {
-    // Wait for connection to be established
-    while(!connected_to_broker) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
+function getSystemReady(): boolean {
+    return (connected_to_broker && frigate_available && init_finished);
+}
+
+async function connectToFrigate(): Promise<void> {
+    frigate_available = false;
+    while(!frigate_available) {
+        await pokeFrigate()
     }
-    
-    // Initialize camera states based on configuration
-    await initializeCameraStates();
-    
-    // Set up camera schedules
-    setupCameraSchedules();
-    
-    // Set up health check
-    setupHealthCheck();
-})();
+}
+
+let should_run = true;
+let init_finished = false;
+
+while(should_run) {
+    while(!connected_to_broker) {
+        await connectToBroker();
+        await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+
+    while(!frigate_available) {
+        await connectToFrigate();
+        await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+
+    if(!init_finished) {
+        // Initialize camera states based on configuration
+        await initializeCameraStates();
+
+        // Set up camera schedules (this is internal on our end)
+        setupCameraSchedules();
+        
+        // Set up health check (regular 'poke' to Frigate via MQTT)
+        setupHealthCheck();
+
+        // Ok!
+        init_finished = true;
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 3000));
+}
