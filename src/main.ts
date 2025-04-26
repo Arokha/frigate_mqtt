@@ -433,43 +433,38 @@ async function setCameraPtzPreset(camera: FrigateCamera, presetName: string): Pr
  */
 async function safeMoveCameraToPreset(
     camera: FrigateCamera, 
-    presetName: string, 
+    presetName: string,
+    slewTime: number = 0 // How long to disable motion/detection for
 ): Promise<boolean> {
     console.log(`[CAM:${camera.getName()}] Safely moving to preset ${presetName}...`);
 
-    const cameraConfig = config.cameras.find(c => c.name === camera.getName());
-    if (!cameraConfig) {
-        console.error(`[CAM:${camera.getName()}] Could not find configuration for camera ${camera.getName()}`);
-        return false;
-    }
-    const slewTime = cameraConfig.slew_time;
-    
     // Store original detection states to restore later if needed
     const originalDetectState = camera.detect_enabled;
     const originalMotionState = camera.motion_enabled;
-    console.log(`[CAM:${camera.getName()}] Pre-move detect state: ${originalDetectState}, motion state: ${originalMotionState}`);
     
-    // Step 1: Disable object detection
-    if (originalDetectState) {
-        console.log(`[CAM:${camera.getName()}] Disabling object detection...`);
-        const detectResult = await setCameraDetect(camera, false);
-        if (!detectResult) {
-            console.error(`[CAM:${camera.getName()}] Failed to disable object detection`);
-            return false;
-        }
-    }
-    
-    // Step 2: Disable motion detection
-    if (originalMotionState) {
-        console.log(`[CAM:${camera.getName()}] Disabling motion detection...`);
-        const motionResult = await setCameraMotion(camera, false);
-        if (!motionResult) {
-            console.error(`[CAM:${camera.getName()}] Failed to disable motion detection`);
-            // Try to restore original detection state
-            if (originalDetectState) {
-                await setCameraDetect(camera, true);
+    if(slewTime){
+        // Step 1: Disable object detection
+        if (slewTime && originalDetectState) {
+            console.log(`[CAM:${camera.getName()}] Disabling object detection...`);
+            const detectResult = await setCameraDetect(camera, false);
+            if (!detectResult) {
+                console.error(`[CAM:${camera.getName()}] Failed to disable object detection`);
+                return false;
             }
-            return false;
+        }
+        
+        // Step 2: Disable motion detection
+        if (slewTime && originalMotionState) {
+            console.log(`[CAM:${camera.getName()}] Disabling motion detection...`);
+            const motionResult = await setCameraMotion(camera, false);
+            if (!motionResult) {
+                console.error(`[CAM:${camera.getName()}] Failed to disable motion detection`);
+                // Try to restore original detection state
+                if (originalDetectState) {
+                    await setCameraDetect(camera, true);
+                }
+                return false;
+            }
         }
     }
     
@@ -489,20 +484,24 @@ async function safeMoveCameraToPreset(
     }
     
     // Wait for camera to finish moving before re-enabling detection
-    console.log(`[CAM:${camera.getName()}] Waiting ${slewTime}s for camera movement to complete...`);
-    await new Promise(resolve => setTimeout(resolve, slewTime*1000));
-    
-    // Step 4: Re-enable motion detection
-    if (originalMotionState) {
-        console.log(`[CAM:${camera.getName()}] Re-enabling motion detection...`);
-        await setCameraMotion(camera, true);
+    if(slewTime){
+        console.log(`[CAM:${camera.getName()}] Waiting ${slewTime}s for camera movement to complete...`);
+        await new Promise(resolve => setTimeout(resolve, slewTime*1000));
+
+        // Step 4: Re-enable motion detection
+        if (originalMotionState) {
+            console.log(`[CAM:${camera.getName()}] Re-enabling motion detection...`);
+            await setCameraMotion(camera, true);
+        }
+        
+        // Step 5: Re-enable object detection
+        if (originalDetectState) {
+            console.log(`[CAM:${camera.getName()}] Re-enabling object detection...`);
+            await setCameraDetect(camera, true);
+        }
     }
     
-    // Step 5: Re-enable object detection
-    if (originalDetectState) {
-        console.log(`[CAM:${camera.getName()}] Re-enabling object detection...`);
-        await setCameraDetect(camera, true);
-    }
+    
     
     console.log(`[CAM:${camera.getName()}] Finished move commands for preset ${presetName}`);
     return true;
@@ -520,6 +519,7 @@ async function patrolCameraPresets(
     camera: FrigateCamera,
     presetNames: string[],
     dwellTime: number = 30 * 1000, // Time to wait at each preset
+    slewTime: number = 10 * 1000, // How long to disable motion/detection for
     maxRetries: number = 10
 ): Promise<boolean> {
     console.log(`[CAM:${camera.getName()}] Starting patrol through ${presetNames.length} positions`);
@@ -542,7 +542,7 @@ async function patrolCameraPresets(
             // Continue anyway
         }
         
-        const result = await safeMoveCameraToPreset(camera, presetNames[0]);
+        const result = await safeMoveCameraToPreset(camera, presetNames[0], slewTime);
         if (!result) {
             console.error(`[CAM:${camera.getName()}] Failed to start patrol`);
             camera.setCameraState({ task: 'normal' });
@@ -585,7 +585,7 @@ async function patrolCameraPresets(
             console.log(`[CAM:${camera.getName()}] Still detecting objects after ${maxRetries} retries, continuing patrol anyway`);
         }
         
-        const result = await safeMoveCameraToPreset(camera, presetNames[i]);
+        const result = await safeMoveCameraToPreset(camera, presetNames[i], slewTime);
         if (!result) {
             console.error(`[CAM:${camera.getName()}] Failed to continue patrol at position ${i+1}`);
             // Try to restore detection
@@ -639,7 +639,7 @@ function setupCameraSchedules(): void {
                         // Check if there are objects detected
                         if (!camera.sees_objects) {
                             console.log(`[CAM:${camera.getName()}] Rehoming to preset ${cameraConfig.rehome_preset}...`);
-                            await safeMoveCameraToPreset(camera, cameraConfig.rehome_preset).catch(err => {
+                            await safeMoveCameraToPreset(camera, cameraConfig.rehome_preset, cameraConfig.rehome_slew_time).catch(err => {
                                 console.error(`[CAM:${camera.getName()}] Error rehoming:`, err);
                             });
                         } else {
@@ -673,7 +673,8 @@ function setupCameraSchedules(): void {
                         await patrolCameraPresets(
                             camera, 
                             cameraConfig.patrol_route,
-                            cameraConfig.patrol_dwell * 1000 // Convert seconds to milliseconds
+                            cameraConfig.patrol_dwell * 1000, // Convert seconds to milliseconds
+                            cameraConfig.patrol_slew_time * 1000 // Convert seconds to milliseconds
                         ).catch(err => {
                             console.error(`[CAM:${camera.getName()}] Error patrolling:`, err);
                         });

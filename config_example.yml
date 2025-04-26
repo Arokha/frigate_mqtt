@@ -6,16 +6,17 @@ mqtt_root: 'frigate' # We expect this root namespace in MQTT (configurable in Fr
 cameras:
   # Camera object
   - name: camera_name_here  # Name of the camera
-    slew_time: 10           # Seconds. How long we expect this camera to take to slew between presets. Overestimating is better than underestimating.
 
     rehome: true            # Whether to rehome after some time
     rehome_after: 120       # Seconds
     rehome_preset: "1"      # ONVIF preset that is the home position
+    rehome_slew_time: 0     # Seconds. How long to disable motion/detection for while camera is moving
 
     patrols: true           # Whether to patrol some presets occasionally
     patrol_every: 3600      # Seconds
     patrol_route: ["2","3","1"] # ONVIF preset names
     patrol_dwell: 30        # Seconds. Set to the same as patrol_every to spend equal time at every preset in a loop
+    patrol_slew_time: 15    # Seconds. How long to disable motion/detection for while camera is moving
     
     # If either/both of these are true, we will disable them during camera slews, and re-enable them after
     want_motion: true       # Whether we want motion-detection on
