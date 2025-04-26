@@ -6,6 +6,7 @@ mqtt_root: 'frigate' # We expect this root namespace in MQTT (configurable in Fr
 cameras:
   # Camera object
   - name: camera_name_here  # Name of the camera
+    slew_time: 10           # Seconds. How long we expect this camera to take to slew between presets. Overestimating is better than underestimating.
 
     rehome: true            # Whether to rehome after some time
     rehome_after: 120       # Seconds

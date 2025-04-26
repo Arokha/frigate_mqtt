@@ -663,7 +663,12 @@ function setupCameraSchedules(): void {
                     await refreshCameraState(camera);
                     
                     // Check if there are objects detected
-                    if (!camera.sees_objects && camera.task === 'normal') {
+                    if (camera.sees_objects) {
+                        console.log(`[CAM:${camera.getName()}] Skipping patrol because objects are detected`);
+                        return;
+                    }
+                    // Only patrol if the camera is idle
+                    if (camera.task === 'normal') {
                         console.log(`[CAM:${camera.getName()}] Starting patrol...`);
                         await patrolCameraPresets(
                             camera, 
@@ -673,7 +678,7 @@ function setupCameraSchedules(): void {
                             console.error(`[CAM:${camera.getName()}] Error patrolling:`, err);
                         });
                     } else {
-                        console.log(`[CAM:${camera.getName()}] Skipping patrol because objects are detected`);
+                        console.log(`[CAM:${camera.getName()}] Won't start patrol because task is currently: ${camera.task}`);
                     }
                 } catch (err) {
                     console.error(`[CAM:${camera.getName()}] Error checking state before patrolling:`, err);
