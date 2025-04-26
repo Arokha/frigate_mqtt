@@ -6,7 +6,7 @@ import { z } from "zod";
 
 export const frigateStateSchema = z.record(z.string(), z.object({
     motion: z.boolean(),
-    objects: z.array(z.string()),
+    objects: z.array(z.any()),
     config: z.object({
         detect: z.boolean(),
         snapshots: z.boolean(),
