@@ -4,7 +4,9 @@ services:
   
   frigate_mqtt:
     build: .
-    container_name: frigate_mqtt
-    restart: unless-stopped
+    restart: on-failure:3
     volumes:
       - ./config:/app/config
+    #depends_on:
+    #  - frigate
+    #  - mqtt_broker
