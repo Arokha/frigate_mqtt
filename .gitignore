@@ -1,5 +1,9 @@
 # Build artifact
 main.js
+main.js.map
+
+# Config
+config.yml
 
 # Logs
 logs

@@ -6,7 +6,7 @@ import { configSchema } from "./config";
 import { frigateStateSchema, FrigateState } from "./frigate";
 
 // Read config from config.yaml file
-const configFile = readFileSync("config.yaml", "utf8");
+const configFile = readFileSync("config.yml", "utf8");
 const config = configSchema.parse(yamlParse(configFile));
 
 // Create an array of FrigateCamera instances based on the config
@@ -89,15 +89,15 @@ function connectToBroker(): void {
  * Handle broker connect event
  */
 function handleConnect(): void {
-    console.log("Connected to MQTT broker");
+    console.log("[MAIN] Connected to MQTT broker");
     connected_to_broker = true;
     
     // Subscribe to required topics
     setupSubscriptions();
     
     // Initial poke to get camera states
-    pokeBroker().catch(err => {
-        console.error("Error during initial poke:", err);
+    pokeFrigate().catch(err => {
+        console.error("[MAIN] Error during initial poke:", err);
     });
 }
 
@@ -105,7 +105,7 @@ function handleConnect(): void {
  * Handle broker error event
  */
 function handleError(err: Error): void {
-    console.error("Error connecting to MQTT broker:", err);
+    console.error("[MAIN] Error connecting to MQTT broker:", err);
     connected_to_broker = false;
 }
 
@@ -113,7 +113,7 @@ function handleError(err: Error): void {
  * Handle broker close event
  */
 function handleClose(): void {
-    console.log("Connection to MQTT broker closed");
+    console.log("[MAIN] Connection to MQTT broker closed");
     connected_to_broker = false;
 }
 
@@ -124,9 +124,9 @@ function setupSubscriptions(): void {
     // Subscribe to camera_activity topic
     broker.subscribe(`${config.mqtt_root}/camera_activity`, { qos: 1 }, (err) => {
         if (err) {
-            console.error(`Error subscribing to ${config.mqtt_root}/camera_activity:`, err);
+            console.error(`[MAIN] Error subscribing to ${config.mqtt_root}/camera_activity:`, err);
         } else {
-            console.log(`Subscribed to ${config.mqtt_root}/camera_activity`);
+            console.log(`[MAIN] Subscribed to ${config.mqtt_root}/camera_activity`);
         }
     });
 
@@ -139,9 +139,9 @@ function setupSubscriptions(): void {
     }).flat();
     broker.subscribe(cameraTopics, { qos: 1 }, (err) => {
         if (err) {
-            console.error(`Error subscribing to camera topics:`, err);
+            console.error(`[MAIN] Error subscribing to camera topics:`, err);
         } else {
-            console.log(`Subscribed to camera topics`);
+            console.log(`[MAIN] Subscribed to camera topics`);
         }
     });
 }
@@ -152,7 +152,7 @@ connectToBroker();
 // Wait for connection to be established
 (async function waitForConnection() {
     while(!connected_to_broker) {
-        console.log("Waiting for connection to MQTT broker...");
+        console.log("[MAIN] Waiting for connection to MQTT broker...");
         await new Promise(resolve => setTimeout(resolve, 1000));
     }
 })();
@@ -172,12 +172,12 @@ function setupHealthCheck(): void {
     
     // Set up a new interval
     healthCheckInterval = setInterval(() => {
-        pokeBroker().catch(err => {
-            console.error("Error during scheduled poke:", err);
+        pokeFrigate().catch(err => {
+            console.error("[MAIN] Error during scheduled poke:", err);
         });
     }, HEALTH_CHECK_INTERVAL);
     
-    console.log(`Set up health check to poke broker every ${HEALTH_CHECK_INTERVAL / 1000} seconds`);
+    //console.log(`Set up health check to poke broker every ${HEALTH_CHECK_INTERVAL / 1000} seconds`);
 }
 
 /**
@@ -187,20 +187,20 @@ function setupHealthCheck(): void {
  * @returns Promise that resolves when the state has been updated
  */
 async function refreshCameraState(camera: FrigateCamera, resetInterval: boolean = true): Promise<void> {
-    console.log(`Refreshing state for ${camera.getName()}...`);
+    console.log(`[CAM:${camera.getName()}] Refreshing state...`);
     
     try {
         // Poke the broker to get latest camera states
-        await pokeBroker();
+        await pokeFrigate();
         
         // Reset the health check interval to avoid duplicate pokes
         if (resetInterval) {
             setupHealthCheck();
         }
         
-        console.log(`Current objects for ${camera.getName()}: ${camera.detected_objects.length > 0 ? camera.detected_objects.join(', ') : 'none'}`);
+        console.log(`[CAM:${camera.getName()}] Current objects: ${camera.detected_objects.length > 0 ? camera.detected_objects.join(', ') : 'none'}`);
     } catch (error) {
-        console.error(`Error refreshing state for ${camera.getName()}:`, error);
+        console.error(`[CAM:${camera.getName()}] Error refreshing state:`, error);
         throw error;
     }
 }
@@ -221,8 +221,16 @@ function handleMessage(topic: string, message: Buffer): void {
     // {"camera_name": {"motion": false, "objects": [], "config": {"detect": true, "snapshots": false, "record": true, "audio": false, "autotracking": false}}}
     // Note the "motion" and "objects" are what is CURRENTLY SENSED by the camera, not the config, unlike the "config" object
     if(trimmedTopic === "camera_activity") {
+        console.log("[MAIN] Received camera_activity message:", message.toString());
         try {
-            const parsedStates = frigateStateSchema.parse(JSON.parse(message.toString()));
+            const rawStates = JSON.parse(message.toString());
+            // If Frigate returns only a {} then it is not done coming up yet
+            if (Object.keys(rawStates).length === 0) {
+                console.log("[MAIN] Received empty camera_activity message, ignoring...");
+                return;
+            }
+            // Validate the structure of the received data
+            const parsedStates = frigateStateSchema.parse(rawStates);
             for (const cameraName in parsedStates) {
                 const cameraState = parsedStates[cameraName];
                 const camera = cameras.find((cam) => cam.getName() === cameraName);
@@ -232,11 +240,11 @@ function handleMessage(topic: string, message: Buffer): void {
                         detect_enabled: cameraState.config.detect,
                         detected_objects: cameraState.objects
                     });
-                    console.log(`Updated state for ${cameraName}, detected objects: ${cameraState.objects.length > 0 ? cameraState.objects.join(', ') : 'none'}`);
+                    console.log(`[CAM:${cameraName}] Updated state, detected objects: ${cameraState.objects.length > 0 ? cameraState.objects.join(', ') : 'none'}`);
                 }
             }
         } catch (error) {
-            console.error("Error parsing camera_activity message:", error);
+            console.error("[MAIN] Error parsing camera_activity message:", error);
         }
         return;
     }
@@ -258,12 +266,12 @@ function handleMessage(topic: string, message: Buffer): void {
             case "motion":
                 // Update the camera state
                 camera.setCameraState({motion_enabled: state === "ON"});
-                console.log(`Updated motion state for ${cameraName}: ${state}`);
+                console.log(`[CAM:${cameraName}] Updated motion state: ${state}`);
                 break;
             case "detect":
                 // Update the camera state
                 camera.setCameraState({detect_enabled: state === "ON"});
-                console.log(`Updated detect state for ${cameraName}: ${state}`);
+                console.log(`[CAM:${cameraName}] Updated detect state: ${state}`);
                 break;
         }
     }
@@ -273,7 +281,7 @@ function handleMessage(topic: string, message: Buffer): void {
  * If Frigate is running, it will publish to the frigate/camera_activity topic on receiving a message on frigate/onConnect
  * This function will wait for a response on the camera_activity topic and reject if none is received within the timeout
  */
-async function pokeBroker(): Promise<void> {
+async function pokeFrigate(): Promise<void> {
     try {
         await sendAndWaitForResponse(
             `${config.mqtt_root}/onConnect`,
@@ -281,12 +289,12 @@ async function pokeBroker(): Promise<void> {
             "poke",
             5000
         );
-        console.log("Successfully received response from Frigate");
+        console.log("[MAIN] Successfully received response from Frigate");
     } catch (error) {
-        console.error("Error communicating with Frigate:", error);
+        console.error("[MAIN] Error communicating with Frigate:", error);
         
         // If we've lost connection, try to reconnect
-        console.log("Connection appears to be dead. Attempting to reconnect...");
+        console.log("[MAIN] Connection appears to be dead. Attempting to reconnect...");
         connected_to_broker = false;
         broker.end(true);
         
@@ -310,21 +318,21 @@ async function setCameraDetect(camera: FrigateCamera, state: boolean): Promise<b
     try {
         const response = await sendAndWaitForResponse(publishTopic, subscribeTopic, message, 5000);
         const responseStr = response.toString();
-        console.log(`Received response for ${camera.getName()} detect: ${responseStr}`);
+        console.log(`[CAM:${camera.getName()}] Received response for detect: ${responseStr}`);
         
         // Verify the response matches what we expect
         if (responseStr === message) {
             camera.setCameraState({ detect_enabled: state });
             return true;
         } else {
-            console.error(`Unexpected response for ${camera.getName()} detect: expected ${message}, got ${responseStr}`);
+            console.error(`[CAM:${camera.getName()}] Unexpected response for detect: expected ${message}, got ${responseStr}`);
             return false;
         }
     } catch (error) {
-        console.error(`Error setting detect state for ${camera.getName()}:`, error);
+        console.error(`[CAM:${camera.getName()}] Error setting detect state:`, error);
         
         // If we've lost connection, try to reconnect
-        console.log("Connection appears to be dead. Attempting to reconnect...");
+        console.log("[MAIN] Connection appears to be dead. Attempting to reconnect...");
         connected_to_broker = false;
         broker.end(true);
         
@@ -348,21 +356,21 @@ async function setCameraMotion(camera: FrigateCamera, state: boolean): Promise<b
     try {
         const response = await sendAndWaitForResponse(publishTopic, subscribeTopic, message, 5000);
         const responseStr = response.toString();
-        console.log(`Received response for ${camera.getName()} motion: ${responseStr}`);
+        console.log(`[CAM:${camera.getName()}] Received response for motion: ${responseStr}`);
         
         // Verify the response matches what we expect
         if (responseStr === message) {
             camera.setCameraState({ motion_enabled: state });
             return true;
         } else {
-            console.error(`Unexpected response for ${camera.getName()} motion: expected ${message}, got ${responseStr}`);
+            console.error(`[CAM:${camera.getName()}] Unexpected response for motion: expected ${message}, got ${responseStr}`);
             return false;
         }
     } catch (error) {
-        console.error(`Error setting motion state for ${camera.getName()}:`, error);
+        console.error(`[CAM:${camera.getName()}] Error setting motion state:`, error);
         
         // If we've lost connection, try to reconnect
-        console.log("Connection appears to be dead. Attempting to reconnect...");
+        console.log("[MAIN] Connection appears to be dead. Attempting to reconnect...");
         connected_to_broker = false;
         broker.end(true);
         
@@ -371,8 +379,6 @@ async function setCameraMotion(camera: FrigateCamera, state: boolean): Promise<b
         return false;
     }
 }
-
-
 
 /**
  * Sends a PTZ preset command to a camera
@@ -396,16 +402,16 @@ async function setCameraPtzPreset(camera: FrigateCamera, presetName: string): Pr
             });
         });
         
-        console.log(`Sent PTZ preset command to ${camera.getName()}: ${message}`);
+        console.log(`[CAM:${camera.getName()}] Sent PTZ preset command: ${message}`);
         camera.setCameraState({ task: 'homing' }); // Update the camera state
         return true;
     } catch (error) {
-        console.error(`Error sending PTZ preset command to ${camera.getName()}:`, error);
+        console.error(`[CAM:${camera.getName()}] Error sending PTZ preset command:`, error);
         
         // Check if this is a connection issue
         if (!connected_to_broker) {
             // If we've lost connection, try to reconnect
-            console.log("Connection appears to be dead. Attempting to reconnect...");
+            console.log("[MAIN] Connection appears to be dead. Attempting to reconnect...");
             broker.end(true);
             connectToBroker();
         }
@@ -424,16 +430,16 @@ async function setCameraPtzPreset(camera: FrigateCamera, presetName: string): Pr
  * @param camera The camera to move
  * @param presetName The preset position name to move to
  * @param restoreDetection Whether to restore detection settings after movement (default: true)
- * @param delayAfterMove Milliseconds to wait after moving before restoring detection (default: 5000)
+ * @param slewTime Milliseconds to wait after moving before restoring detection (default: 5000)
  * @returns Promise that resolves with true if all operations succeeded
  */
 async function safeMoveCameraToPreset(
     camera: FrigateCamera, 
     presetName: string, 
     restoreDetection: boolean = true,
-    delayAfterMove: number = 7000
+    slewTime: number = 7 * 1000 // How long we expect the camera to take, at most, to slew to a preset
 ): Promise<boolean> {
-    console.log(`Safely moving ${camera.getName()} to preset ${presetName}...`);
+    console.log(`[CAM:${camera.getName()}] Safely moving to preset ${presetName}...`);
     
     // Store original detection states to restore later if needed
     const originalDetectState = camera.detect_enabled;
@@ -441,20 +447,20 @@ async function safeMoveCameraToPreset(
     
     // Step 1: Disable object detection
     if (originalDetectState) {
-        console.log(`Disabling object detection for ${camera.getName()}...`);
+        console.log(`[CAM:${camera.getName()}] Disabling object detection...`);
         const detectResult = await setCameraDetect(camera, false);
         if (!detectResult) {
-            console.error(`Failed to disable object detection for ${camera.getName()}`);
+            console.error(`[CAM:${camera.getName()}] Failed to disable object detection`);
             return false;
         }
     }
     
     // Step 2: Disable motion detection
     if (originalMotionState) {
-        console.log(`Disabling motion detection for ${camera.getName()}...`);
+        console.log(`[CAM:${camera.getName()}] Disabling motion detection...`);
         const motionResult = await setCameraMotion(camera, false);
         if (!motionResult) {
-            console.error(`Failed to disable motion detection for ${camera.getName()}`);
+            console.error(`[CAM:${camera.getName()}] Failed to disable motion detection`);
             // Try to restore original detection state
             if (originalDetectState) {
                 await setCameraDetect(camera, true);
@@ -464,10 +470,10 @@ async function safeMoveCameraToPreset(
     }
     
     // Step 3: Move to preset
-    console.log(`Moving ${camera.getName()} to preset ${presetName}...`);
+    console.log(`[CAM:${camera.getName()}] Moving to preset ${presetName}...`);
     const ptzResult = await setCameraPtzPreset(camera, presetName);
     if (!ptzResult) {
-        console.error(`Failed to move ${camera.getName()} to preset ${presetName}`);
+        console.error(`[CAM:${camera.getName()}] Failed to move to preset ${presetName}`);
         // Try to restore original states
         if (restoreDetection) {
             if (originalMotionState) {
@@ -483,23 +489,23 @@ async function safeMoveCameraToPreset(
     // Only restore detection if requested
     if (restoreDetection) {
         // Wait for camera to finish moving before re-enabling detection
-        console.log(`Waiting ${delayAfterMove}ms for camera movement to complete...`);
-        await new Promise(resolve => setTimeout(resolve, delayAfterMove));
+        console.log(`[CAM:${camera.getName()}] Waiting ${slewTime}ms for camera movement to complete...`);
+        await new Promise(resolve => setTimeout(resolve, slewTime));
         
         // Step 4: Re-enable motion detection
         if (originalMotionState) {
-            console.log(`Re-enabling motion detection for ${camera.getName()}...`);
+            console.log(`[CAM:${camera.getName()}] Re-enabling motion detection...`);
             await setCameraMotion(camera, true);
         }
         
         // Step 5: Re-enable object detection
         if (originalDetectState) {
-            console.log(`Re-enabling object detection for ${camera.getName()}...`);
+            console.log(`[CAM:${camera.getName()}] Re-enabling object detection...`);
             await setCameraDetect(camera, true);
         }
     }
     
-    console.log(`Successfully moved ${camera.getName()} to preset ${presetName}`);
+    console.log(`[CAM:${camera.getName()}] Finished move commands for preset ${presetName}`);
     return true;
 }
 
@@ -514,10 +520,10 @@ async function safeMoveCameraToPreset(
 async function patrolCameraPresets(
     camera: FrigateCamera,
     presetNames: string[],
-    dwellTime: number = 10000,
-    maxRetries: number = 3
+    dwellTime: number = 30 * 1000, // Time to wait at each preset
+    maxRetries: number = 10
 ): Promise<boolean> {
-    console.log(`Starting patrol for ${camera.getName()} through ${presetNames.length} positions`);
+    console.log(`[CAM:${camera.getName()}] Starting patrol through ${presetNames.length} positions`);
     camera.setCameraState({ task: 'patrolling' });
     
     // First preset - disable detection but don't restore yet
@@ -528,18 +534,18 @@ async function patrolCameraPresets(
             
             // Check if there are objects detected
             if (camera.detected_objects.length > 0) {
-                console.log(`Skipping patrol for ${camera.getName()} because objects are detected: ${camera.detected_objects.join(', ')}`);
+                console.log(`[CAM:${camera.getName()}] Skipping patrol because objects are detected: ${camera.detected_objects.join(', ')}`);
                 camera.setCameraState({ task: 'normal' });
                 return false;
             }
         } catch (error) {
-            console.error(`Error refreshing camera state before patrol:`, error);
+            console.error(`[CAM:${camera.getName()}] Error refreshing camera state before patrol:`, error);
             // Continue anyway
         }
         
         const result = await safeMoveCameraToPreset(camera, presetNames[0], false);
         if (!result) {
-            console.error(`Failed to start patrol for ${camera.getName()}`);
+            console.error(`[CAM:${camera.getName()}] Failed to start patrol`);
             camera.setCameraState({ task: 'normal' });
             return false;
         }
@@ -563,26 +569,26 @@ async function patrolCameraPresets(
                     // No objects detected, ok to move
                     shouldWait = false;
                 } else {
-                    console.log(`Objects detected at position ${i} for ${camera.getName()}: ${camera.detected_objects.join(', ')}. Waiting...`);
+                    console.log(`[CAM:${camera.getName()}] Objects detected at position ${i}: ${camera.detected_objects.join(', ')}. Waiting...`);
                     
                     // Wait another dwell time and check again
                     await new Promise(resolve => setTimeout(resolve, dwellTime));
                     retryCount++;
                 }
             } catch (error) {
-                console.error(`Error refreshing camera state during patrol:`, error);
+                console.error(`[CAM:${camera.getName()}] Error refreshing camera state during patrol:`, error);
                 // If we can't get the state, we'll assume it's safe to continue
                 shouldWait = false;
             }
         }
         
         if (shouldWait) {
-            console.log(`Still detecting objects after ${maxRetries} retries, continuing patrol anyway`);
+            console.log(`[CAM:${camera.getName()}] Still detecting objects after ${maxRetries} retries, continuing patrol anyway`);
         }
         
         const result = await safeMoveCameraToPreset(camera, presetNames[i], i === presetNames.length - 1);
         if (!result) {
-            console.error(`Failed to continue patrol for ${camera.getName()} at position ${i+1}`);
+            console.error(`[CAM:${camera.getName()}] Failed to continue patrol at position ${i+1}`);
             // Try to restore detection
             const originalDetectState = camera.detect_enabled;
             const originalMotionState = camera.motion_enabled;
@@ -603,7 +609,7 @@ async function patrolCameraPresets(
     }
     
     camera.setCameraState({ task: 'normal' });
-    console.log(`Completed patrol for ${camera.getName()}`);
+    console.log(`[CAM:${camera.getName()}] Completed patrol`);
     return true;
 }
 
@@ -611,19 +617,19 @@ async function patrolCameraPresets(
  * Set up rehoming and patrol schedules for all cameras based on their configuration
  */
 function setupCameraSchedules(): void {
-    console.log("Setting up camera schedules...");
+    console.log("[MAIN] Setting up camera schedules...");
     
     // Set up schedules for each camera
     cameras.forEach((camera) => {
         const cameraConfig = config.cameras.find(c => c.name === camera.getName());
         if (!cameraConfig) {
-            console.error(`Could not find configuration for camera ${camera.getName()}`);
+            console.error(`[MAIN] Could not find configuration for camera ${camera.getName()}`);
             return;
         }
         
         // Set up rehoming schedule if enabled
         if (cameraConfig.rehome && cameraConfig.rehome_after > 0) {
-            console.log(`Setting up rehoming schedule for ${camera.getName()} every ${cameraConfig.rehome_after} seconds`);
+            console.log(`[MAIN] Setting up rehoming schedule for ${camera.getName()} every ${cameraConfig.rehome_after} seconds`);
             setInterval(async () => {
                 // Only rehome if the camera is not currently patrolling
                 if (camera.task !== 'patrolling') {
@@ -633,25 +639,25 @@ function setupCameraSchedules(): void {
                         
                         // Check if there are objects detected
                         if (camera.detected_objects.length === 0) {
-                            console.log(`Rehoming ${camera.getName()}...`);
+                            console.log(`[CAM:${camera.getName()}] Rehoming...`);
                             await safeMoveCameraToPreset(camera, "1").catch(err => {
-                                console.error(`Error rehoming ${camera.getName()}:`, err);
+                                console.error(`[CAM:${camera.getName()}] Error rehoming:`, err);
                             });
                         } else {
-                            console.log(`Skipping rehome for ${camera.getName()} because objects are detected: ${camera.detected_objects.join(', ')}`);
+                            console.log(`[CAM:${camera.getName()}] Skipping rehome because objects are detected: ${camera.detected_objects.join(', ')}`);
                         }
                     } catch (err) {
-                        console.error(`Error checking state before rehoming ${camera.getName()}:`, err);
+                        console.error(`[CAM:${camera.getName()}] Error checking state before rehoming:`, err);
                     }
                 } else {
-                    console.log(`Skipping rehome for ${camera.getName()} because it is currently ${camera.task}`);
+                    console.log(`[CAM:${camera.getName()}] Skipping rehome because task is currently: ${camera.task}`);
                 }
             }, cameraConfig.rehome_after * 1000);
         }
         
         // Set up patrol schedule if enabled
         if (cameraConfig.patrols && cameraConfig.patrol_every > 0 && cameraConfig.patrol_route.length > 0) {
-            console.log(`Setting up patrol schedule for ${camera.getName()} every ${cameraConfig.patrol_every} seconds`);
+            console.log(`[CAM:${camera.getName()}] Setting up patrol schedule: every ${cameraConfig.patrol_every} seconds`);
             setInterval(async () => {
                 try {
                     // Get the latest camera state before deciding to patrol
@@ -659,15 +665,15 @@ function setupCameraSchedules(): void {
                     
                     // Check if there are objects detected
                     if (camera.detected_objects.length === 0) {
-                        console.log(`Starting patrol for ${camera.getName()}...`);
+                        console.log(`[CAM:${camera.getName()}] Starting patrol...`);
                         await patrolCameraPresets(camera, cameraConfig.patrol_route).catch(err => {
-                            console.error(`Error patrolling ${camera.getName()}:`, err);
+                            console.error(`[CAM:${camera.getName()}] Error patrolling:`, err);
                         });
                     } else {
-                        console.log(`Skipping patrol for ${camera.getName()} because objects are detected: ${camera.detected_objects.join(', ')}`);
+                        console.log(`[CAM:${camera.getName()}] Skipping patrol because objects are detected: ${camera.detected_objects.join(', ')}`);
                     }
                 } catch (err) {
-                    console.error(`Error checking state before patrolling ${camera.getName()}:`, err);
+                    console.error(`[CAM:${camera.getName()}] Error checking state before patrolling:`, err);
                 }
             }, cameraConfig.patrol_every * 1000);
         }
