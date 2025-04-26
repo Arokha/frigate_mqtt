@@ -6,11 +6,14 @@ export const configSchema = z.object({
     "mqtt_root": z.string().default("frigate"),
     "cameras": z.array(z.object({
         "name": z.string(),
+        "slew_time": z.number().default(10000),
         "rehome": z.boolean().default(true),
         "rehome_after": z.number().default(120),
+        "rehome_preset": z.string().default("1"),
         "patrols": z.boolean().default(false),
         "patrol_every": z.number().default(3600),
         "patrol_route": z.array(z.string()).default(['1']),
+        "patrol_dwell": z.number().default(30),
         "want_motion": z.boolean().default(true),
         "want_detect": z.boolean().default(true),
     }))

@@ -2,7 +2,7 @@ export interface CameraState {
     motion_enabled?: boolean;
     detect_enabled?: boolean;
     task?: 'normal' | 'homing' | 'patrolling';
-    detected_objects?: string[]; // Add this field
+    sees_objects?: boolean;
 }
 
 export class FrigateCamera {
@@ -10,9 +10,9 @@ export class FrigateCamera {
     motion_enabled: boolean = false;
     detect_enabled: boolean = false;
     task: 'normal' | 'homing' | 'patrolling' = 'normal';
-    detected_objects: string[] = [];
+    sees_objects: boolean = false;
 
-    constructor(name: string, mqtt_url: string = 'localhost', mqtt_port: number = 1883) {
+    constructor(name: string) {
         this.name = name;
     }
 
@@ -21,12 +21,12 @@ export class FrigateCamera {
     }
 
     /**
-     * The topic where the camera will publish changes to the object detection state.
+     * The topic where the camera will publish if object detection is enabled or not.
      * @param root Root topic name for MQTT
      * @returns The MQTT topic where 'ON' or 'OFF' will be published
      */
-    getDetectUpdateTopic(root = "frigate"): string {
-        return `${root}/${this.name}/detect`;
+    getDetectStateTopic(root = "frigate"): string {
+        return `${root}/${this.name}/detect/state`;
     }
     /**
      * Note: Must be disabled before disabling motion detection.
@@ -37,12 +37,12 @@ export class FrigateCamera {
         return `${root}/${this.name}/detect/set`;
     }
     /**
-     * The topic where the camera will publish changes to the motion detection state.
+     * The topic where the camera will publish if motion detection is enabled or not.
      * @param root Root topic name for MQTT
      * @returns The MQTT topic where 'ON' or 'OFF' will be published
      */
-    getMotionUpdateTopic(root = "frigate"): string {
-        return `${root}/${this.name}/motion`;
+    getMotionStateTopic(root = "frigate"): string {
+        return `${root}/${this.name}/motion/state`;
     }
     /**
      * Note: Detection MUST be disabled to also disable motion detection.
@@ -81,12 +81,9 @@ export class FrigateCamera {
             this.task = newstate.task;
             updated = true;
         }
-        if (newstate.detected_objects !== undefined) {
-            // Only update if the array content is different
-            if (JSON.stringify(this.detected_objects) !== JSON.stringify(newstate.detected_objects)) {
-                this.detected_objects = newstate.detected_objects;
-                updated = true;
-            }
+        if (newstate.sees_objects !== undefined && newstate.sees_objects !== this.sees_objects) {
+            this.sees_objects = newstate.sees_objects;
+            updated = true;
         }
         return updated;
     }

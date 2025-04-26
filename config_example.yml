@@ -1,15 +1,26 @@
-mqtt_url: 'mqtt://localhost'
-mqtt_port: 1883
-mqtt_root: 'frigate'
+mqtt_url: 'mqtt://localhost' # We connect out to here. Should be 'mqtt://' protocol
+mqtt_port: 1883 # On this port
+mqtt_root: 'frigate' # We expect this root namespace in MQTT (configurable in Frigate's config)
 
-# Array of cameras
+# Array of cameras. All parameters are optional, but if you don't provide ANY, then why are you here!
 cameras:
   # Camera object
-  - name: coyotes # Name of the camera
-    rehome: true # Whether to rehome after some time
-    rehome_after: 120 # Seconds
-    patrols: true # Whether to patrol some presets occasionally
-    patrol_every: 3600 # Seconds
-    patrol_route: ["2","3","1"] # Onvif preset names
-    want_motion: true # Whether we want motion-detection on
-    want_detect: true # Whether we want object-detection on (requires motion)
+  - name: camera_name_here  # Name of the camera
+
+    rehome: true            # Whether to rehome after some time
+    rehome_after: 120       # Seconds
+    rehome_preset: "1"      # ONVIF preset that is the home position
+
+    patrols: true           # Whether to patrol some presets occasionally
+    patrol_every: 3600      # Seconds
+    patrol_route: ["2","3","1"] # ONVIF preset names
+    patrol_dwell: 30        # Seconds. Set to the same as patrol_every to spend equal time at every preset in a loop
+    
+    # If either/both of these are true, we will disable them during camera slews, and re-enable them after
+    want_motion: true       # Whether we want motion-detection on
+    want_detect: true       # Whether we want object-detection on (requires motion detection)
+
+  - name: another_camera
+    rehome: true
+    rehome_after: 60
+    rehome_preset: "home"
