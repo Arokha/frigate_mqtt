@@ -681,12 +681,62 @@ function setupCameraSchedules(): void {
 }
 
 
+/**
+ * Initialize camera states based on configuration
+ */
+async function initializeCameraStates(): Promise<void> {
+    console.log("[MAIN] Initializing camera states based on configuration...");
+    
+    // Get the latest camera states from Frigate
+    await pokeFrigate().catch(err => {
+        console.error("[MAIN] Error getting initial camera states:", err);
+    });
+    
+    // Set up each camera's state based on configuration
+    for (const camera of cameras) {
+        const cameraConfig = config.cameras.find(c => c.name === camera.getName());
+        if (!cameraConfig) {
+            console.error(`[MAIN] Could not find configuration for camera ${camera.getName()}`);
+            continue;
+        }
+        
+        console.log(`[CAM:${camera.getName()}] Initializing state based on configuration...`);
+        
+        // Set motion detection state if it doesn't match the desired state
+        if (cameraConfig.want_motion !== camera.motion_enabled) {
+            console.log(`[CAM:${camera.getName()}] Setting initial motion detection to: ${cameraConfig.want_motion ? 'ON' : 'OFF'}`);
+            await setCameraMotion(camera, cameraConfig.want_motion).catch(err => {
+                console.error(`[CAM:${camera.getName()}] Error setting initial motion state:`, err);
+            });
+        }
+        
+        // Set object detection state if it doesn't match the desired state
+        // Note: Motion detection must be enabled for object detection to work
+        if (cameraConfig.want_detect !== camera.detect_enabled) {
+            // Only enable object detection if motion detection is also enabled
+            if (!cameraConfig.want_detect || (cameraConfig.want_detect && camera.motion_enabled)) {
+                console.log(`[CAM:${camera.getName()}] Setting initial object detection to: ${cameraConfig.want_detect ? 'ON' : 'OFF'}`);
+                await setCameraDetect(camera, cameraConfig.want_detect).catch(err => {
+                    console.error(`[CAM:${camera.getName()}] Error setting initial detect state:`, err);
+                });
+            } else {
+                console.log(`[CAM:${camera.getName()}] Cannot enable object detection because motion detection is disabled`);
+            }
+        }
+    }
+    
+    console.log("[MAIN] Camera state initialization complete");
+}
+
 // Initialize camera schedules and health check after connection is established
 (async function initialize() {
     // Wait for connection to be established
     while(!connected_to_broker) {
         await new Promise(resolve => setTimeout(resolve, 1000));
     }
+    
+    // Initialize camera states based on configuration
+    await initializeCameraStates();
     
     // Set up camera schedules
     setupCameraSchedules();
